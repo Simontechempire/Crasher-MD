@@ -1,7 +1,6 @@
 /**
- * ＣＲＡＳＨＥＲ ＭＤ
- * Full WhatsApp Bot — Baileys + Pairing Code + 150 Commands
- * FIXED - NO MORE "could not link"
+ * ＣＲＡＳＨＥＲ ＭＤ - FINAL FIXED
+ * FIXED: Pairing + EADDRINUSE + Timezone
  */
 
 const {
@@ -20,12 +19,11 @@ const path = require("path");
 const fs = require("fs-extra");
 const axios = require("axios");
 const chalk = require("chalk");
-const moment = require("moment-timezone");
 const config = require("./config");
 const {
-  fancy, fancyUpper, runtime, getTime, getDate,
+  fancy, runtime, getTime, getDate,
   isOwner, smsg, getBuffer, sleep, pickRandom,
-  parseMention, isUrl, loadDB, saveDB
+  isUrl, loadDB, saveDB
 } = require("./lib/function");
 
 // ========== GLOBALS ==========
@@ -45,7 +43,7 @@ function listSessions(){
   return fs.existsSync(SESSIONS_DIR) ? fs.readdirSync(SESSIONS_DIR).filter(f=>fs.statSync(path.join(SESSIONS_DIR,f)).isDirectory()) : []
 }
 
-// ========== EXPRESS PAIRING - FIXED FOR 8-DIGIT CODE ==========
+// ========== PAIRING - FIXED ==========
 async function handlePair(phone, res){
   try{
     phone = String(phone||'').replace(/\D/g,'')
@@ -77,7 +75,6 @@ async function handlePair(phone, res){
     
     let code = await tempSock.requestPairingCode(phone)
     code = code?.match(/.{1,4}/g)?.join('-') || code
-    
     console.log(chalk.green(`[PAIR] ${phone} => ${code}`))
     
     tempSock.ev.on('connection.update', async(u)=>{
@@ -96,21 +93,10 @@ async function handlePair(phone, res){
 
 app.get('/pair', (req,res)=>handlePair(req.query.number, res))
 app.post('/pair', (req,res)=>handlePair(req.body.phone || req.body.number, res))
-
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, "public", "index.html"));
-});
-
+app.get('/', (req, res) => res.sendFile(path.join(__dirname, "public", "index.html")))
 app.get("/status", (req, res) => {
-  res.json({
-    bot: config.botName,
-    connected: false,
-    sessions: listSessions().length,
-    uptime: runtime((Date.now() - startTime) / 1000)
-  });
-});
-
-app.listen(PORT, ()=>console.log(chalk.cyan(`[CRASHER MD] running on ${PORT}`)))
+  res.json({ bot: config.botName || 'CRASHER MD', sessions: listSessions().length, uptime: runtime((Date.now() - startTime)/1000) })
+})
 
 // ========== START SOCKET PER NUMBER ==========
 async function startBot(num) {
@@ -128,112 +114,68 @@ async function startBot(num) {
     browser: Browsers.macOS('Chrome'),
     syncFullHistory: false,
     markOnlineOnConnect: true,
-    generateHighQualityLinkPreview: true,
     getMessage: async () => undefined
   });
 
   sock.ev.on("creds.update", saveCreds);
-
   sock.ev.on("connection.update", async (update) => {
     const { connection, lastDisconnect } = update;
-
     if (connection === "open") {
-      console.log(chalk.greenBright("╔══════════════════════════════════════╗"));
-      console.log(chalk.greenBright("║   ＣＲＡＳＨＥＲ ＭＤ  CONNECTED    ║"));
-      console.log(chalk.greenBright("╚══════════════════════════════════════╝"));
-      console.log(chalk.cyan(`User: ${sock.user?.id} | Num: ${num}`));
-      console.log(chalk.cyan(`Prefix: ${config.prefix} | Total Cmds: ${config.totalCmds}`));
-      try {
-        const buf = await getBuffer(config.botPfp);
-        if (buf) await sock.updateProfilePicture(sock.user.id, buf);
-      } catch (e) {}
+      console.log(chalk.green(`[CONNECTED] ${num} => ${sock.user?.id}`));
+      try { const buf = await getBuffer(config.botPfp); if (buf) await sock.updateProfilePicture(sock.user.id, buf); } catch {}
     }
-
     if (connection === "close") {
-      const statusCode = (lastDisconnect?.error instanceof Boom)
-        ? lastDisconnect.error.output.statusCode
-        : 0;
-      const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
-      console.log(chalk.red(`Connection closed ${num}. Code: ${statusCode}. Reconnect: ${shouldReconnect}`));
-      if (shouldReconnect) {
-        setTimeout(() => startBot(num), 3000);
-      } else {
-        console.log(chalk.red(`Logged out ${num}. Delete session/${num}`));
-      }
+      const code = (lastDisconnect?.error instanceof Boom) ? lastDisconnect.error.output.statusCode : 0;
+      if (code !== DisconnectReason.loggedOut) setTimeout(() => startBot(num), 3000);
     }
   });
 
-  // ========== MESSAGE HANDLER ==========
   sock.ev.on("messages.upsert", async ({ messages, type }) => {
     if (type !== "notify") return;
     const m = messages[0];
     if (!m.message || m.key.remoteJid === "status@broadcast") return;
-
     try {
       const msg = smsg(sock, m);
       if (msg.isBaileys) return;
-
-      if (config.auto.read) await sock.readMessages([msg.key]);
-
+      if (config.auto?.read) await sock.readMessages([msg.key]);
       const body = (msg.body || "").trim();
       const prefix = config.prefix;
       const isCmd = body.startsWith(prefix);
       const command = isCmd ? body.slice(prefix.length).trim().split(/\s+/)[0].toLowerCase() : "";
-      const args = isCmd ? body.slice(prefix.length).trim().split(/\s+/).slice(1) : [];
-      const text = args.join(" ");
-      const q = text;
+      const q = body.slice(prefix.length+command.length).trim();
       const sender = msg.sender;
       const chat = msg.chat;
-      const fromMe = msg.fromMe;
       const isGroup = msg.isGroup;
       const pushName = msg.pushName || "User";
-
-      if (!config.public && !isOwner(sender) && !fromMe) return;
-      if (db.banned.includes(sender.split("@")[0]) && !isOwner(sender)) return;
-
-      let groupMetadata = {};
-      let participants = [];
-      let isAdmin = false;
-      let isBotAdmin = false;
+      if (!config.public && !isOwner(sender) && !msg.fromMe) return;
+      if (db.banned?.includes(sender.split("@")[0]) && !isOwner(sender)) return;
+      let isAdmin = false; let isBotAdmin = false;
       if (isGroup) {
         try {
-          groupMetadata = await sock.groupMetadata(chat);
-          participants = groupMetadata.participants || [];
+          const meta = await sock.groupMetadata(chat);
           const botId = jidNormalizedUser(sock.user.id);
           const senderId = jidNormalizedUser(sender);
-          isAdmin = participants.some(p => p.id === senderId && (p.admin === "admin" || p.admin === "superadmin"));
-          isBotAdmin = participants.some(p => p.id === botId && (p.admin === "admin" || p.admin === "superadmin"));
+          isAdmin = meta.participants.some(p => p.id === senderId && p.admin);
+          isBotAdmin = meta.participants.some(p => p.id === botId && p.admin);
         } catch {}
       }
-
-      if (db.mute[chat] && !isAdmin && !isOwner(sender)) return;
-
-      // Antilink
-      if (isGroup && isBotAdmin && db.antilink[chat] && isUrl(body) && !isAdmin && !isOwner(sender)) {
+      if (db.mute?.[chat] && !isAdmin && !isOwner(sender)) return;
+      if (isGroup && isBotAdmin && db.antilink?.[chat] && isUrl(body) && !isAdmin && !isOwner(sender)) {
         try{
           await msg.react("🚫");
-          await sock.sendMessage(chat, { text: fancy(`Antilink active\n@${sender.split("@")[0]} removed for sending link`), mentions: [sender] });
+          await sock.sendMessage(chat, { text: fancy(`Antilink active\n@${sender.split("@")[0]} removed`), mentions: [sender] });
           await sock.groupParticipantsUpdate(chat, [sender], "remove");
-        }catch{}
-        return;
+        }catch{} return;
       }
-
       if (!isCmd) {
-        if (config.auto.react && Math.random() < 0.05) {
-          const emojis = ["🔥", "💀", "⚡", "🐺", "✨"];
-          await msg.react(pickRandom(emojis));
+        if (config.auto?.react && Math.random() < 0.05) {
+          await msg.react(pickRandom(["🔥","💀","⚡","🐺","✨"]));
         }
         return;
       }
-
-      // React ⏳ when command starts
       await msg.react("⏳");
-
-      console.log(chalk.yellow(`[CMD] ${command} | ${pushName} | ${chat}`));
-
+      console.log(chalk.yellow(`[CMD] ${command} | ${pushName}`));
       switch (command) {
-
-        // ==================== OWNER MENU ====================
         case "menu":
         case "help":
         case "list": {
@@ -1053,25 +995,31 @@ ${fancy("FUN MENU")}
       // Final reaction 💀
       await msg.react("💀");
 
+        default:
+          break;
+      }
+
     } catch (err) {
       console.error("Handler error:", err);
-      try { await m.react?.("⚠️"); } catch {}
+      try { await msg.react("⚠️"); } catch {}
     }
   });
 
   return sock;
 }
 
-// ========== START SERVER + BOT ==========
-app.listen(config.port, () => {
-  console.log(chalk.magenta(`\n🌐 Pairing UI → http://localhost:${config.port}`));
-  console.log(chalk.magenta(`📡 Status     → http://localhost:${config.port}/status\n`));
-});
-
-startBot().catch(err => {
-  console.error("Failed to start bot:", err);
-  process.exit(1);
-});
+// ========== START SERVER + BOT - FIXED EADDRINUSE ==========
+if (!global.__CRASHER_LISTENED) {
+  global.__CRASHER_LISTENED = true;
+  app.listen(PORT, () => {
+    console.log(chalk.magenta(`\n🌐 Pairing UI → http://localhost:${PORT}`));
+    console.log(chalk.magenta(`📡 Status     → http://localhost:${PORT}/status\n`));
+    console.log(chalk.cyan(`[BOOT] Starting ${listSessions().length} sessions...`));
+    listSessions().forEach(n => {
+      startBot(n).catch(e => console.error(`Failed ${n}:`, e));
+    });
+  });
+}
 
 process.on("uncaughtException", (err) => console.error("Uncaught:", err));
 process.on("unhandledRejection", (err) => console.error("Unhandled:", err));
