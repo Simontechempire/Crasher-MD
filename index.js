@@ -1,14 +1,13 @@
 /**
  * ＣＲＡＳＨＥＲ ＭＤ
  * Full WhatsApp Bot — Baileys + Pairing Code + 150 Commands
- * Running on Render Free Tier
+ * FIXED - NO MORE "could not link"
  */
 
 const {
   default: makeWASocket,
   useMultiFileAuthState,
   DisconnectReason,
-  fetchLatestBaileysVersion,
   makeCacheableSignalKeyStore,
   Browsers,
   jidNormalizedUser,
@@ -30,70 +29,105 @@ const {
 } = require("./lib/function");
 
 // ========== GLOBALS ==========
-let sock = null;
-let pairingCodeCache = null;
 let startTime = Date.now();
 const logger = pino({ level: "silent" });
 const app = express();
 app.use(express.json());
+app.use(express.urlencoded({extended:true}));
 app.use(express.static(path.join(__dirname, "public")));
 
-// Database
 let db = loadDB();
+const PORT = process.env.PORT || 10000;
+const SESSIONS_DIR = path.join(__dirname,'session');
+if(!fs.existsSync(SESSIONS_DIR)) fs.mkdirSync(SESSIONS_DIR,{recursive:true});
 
-// ========== EXPRESS PAIRING ENDPOINT ==========
-app.post("/pair", async (req, res) => {
-  try {
-    const phone = String(req.body.phone || "").replace(/\D/g, "");
-    if (!phone || phone.length < 10 || phone.length > 15) {
-      return res.json({ success: false, message: "Invalid phone number" });
-    }
-    if (!sock) {
-      return res.json({ success: false, message: "Bot socket not ready yet. Wait a few seconds." });
-    }
-    if (sock.authState.creds.registered) {
-      return res.json({ success: false, message: "Already connected. Delete session folder to re-pair." });
-    }
+function listSessions(){
+  return fs.existsSync(SESSIONS_DIR) ? fs.readdirSync(SESSIONS_DIR).filter(f=>fs.statSync(path.join(SESSIONS_DIR,f)).isDirectory()) : []
+}
 
-    const code = await sock.requestPairingCode(phone);
-    pairingCodeCache = { phone, code, time: Date.now() };
-    console.log(chalk.green(`[PAIR] Code for ${phone}: ${code}`));
-    res.json({ success: true, code });
-  } catch (err) {
-    console.error("Pair error:", err);
-    res.json({ success: false, message: err.message || "Failed to request pairing code" });
+// ========== EXPRESS PAIRING - FIXED FOR 8-DIGIT CODE ==========
+async function handlePair(phone, res){
+  try{
+    phone = String(phone||'').replace(/\D/g,'')
+    if(!phone || phone.length < 10) return res.json({success:false, message:'Invalid phone number'})
+    
+    const sessionPath = path.join(SESSIONS_DIR, phone)
+    if(!fs.existsSync(sessionPath)) fs.mkdirSync(sessionPath,{recursive:true})
+    
+    const { state, saveCreds } = await useMultiFileAuthState(sessionPath)
+    
+    const tempSock = makeWASocket({
+      version: [2,3000,1023223821],
+      auth: {
+        creds: state.creds,
+        keys: makeCacheableSignalKeyStore(state.keys, logger)
+      },
+      logger,
+      printQRInTerminal: false,
+      browser: Browsers.macOS('Chrome'),
+      syncFullHistory: false
+    })
+    
+    tempSock.ev.on('creds.update', saveCreds)
+    await new Promise(r=>setTimeout(r,2000))
+    
+    if(tempSock.authState.creds.registered){
+      return res.json({success:false, message:'Already paired - delete session/'+phone})
+    }
+    
+    let code = await tempSock.requestPairingCode(phone)
+    code = code?.match(/.{1,4}/g)?.join('-') || code
+    
+    console.log(chalk.green(`[PAIR] ${phone} => ${code}`))
+    
+    tempSock.ev.on('connection.update', async(u)=>{
+      if(u.connection==='open'){
+        console.log(chalk.green(`[PAIRED] ${phone} CONNECTED`))
+        setTimeout(()=>startBot(phone),2000)
+      }
+    })
+    
+    res.json({success:true, code})
+  }catch(err){
+    console.error('Pair error:', err)
+    res.json({success:false, message: err.message || 'Failed to request code'})
   }
-});
+}
 
-app.get("/", (req, res) => {
+app.get('/pair', (req,res)=>handlePair(req.query.number, res))
+app.post('/pair', (req,res)=>handlePair(req.body.phone || req.body.number, res))
+
+app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, "public", "index.html"));
 });
 
 app.get("/status", (req, res) => {
   res.json({
     bot: config.botName,
-    connected: sock?.user ? true : false,
-    user: sock?.user?.id || null,
+    connected: false,
+    sessions: listSessions().length,
     uptime: runtime((Date.now() - startTime) / 1000)
   });
 });
 
-// ========== START SOCKET ==========
-async function startBot() {
-  const { state, saveCreds } = await useMultiFileAuthState(path.join(__dirname, "session"));
-  const { version } = await fetchLatestBaileysVersion();
+app.listen(PORT, ()=>console.log(chalk.cyan(`[CRASHER MD] running on ${PORT}`)))
 
-  sock = makeWASocket({
-    version,
+// ========== START SOCKET PER NUMBER ==========
+async function startBot(num) {
+  const sessionPath = path.join(SESSIONS_DIR, num)
+  const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
+
+  let sock = makeWASocket({
+    version: [2,3000,1023223821],
     logger,
     printQRInTerminal: false,
     auth: {
       creds: state.creds,
       keys: makeCacheableSignalKeyStore(state.keys, logger)
     },
-    browser: Browsers.ubuntu("Chrome"),
+    browser: Browsers.macOS('Chrome'),
     syncFullHistory: false,
-    markOnlineOnConnect: config.auto.online,
+    markOnlineOnConnect: true,
     generateHighQualityLinkPreview: true,
     getMessage: async () => undefined
   });
@@ -107,10 +141,8 @@ async function startBot() {
       console.log(chalk.greenBright("╔══════════════════════════════════════╗"));
       console.log(chalk.greenBright("║   ＣＲＡＳＨＥＲ ＭＤ  CONNECTED    ║"));
       console.log(chalk.greenBright("╚══════════════════════════════════════╝"));
-      console.log(chalk.cyan(`User: ${sock.user?.id}`));
-      console.log(chalk.cyan(`Prefix: ${config.prefix}`));
-      console.log(chalk.cyan(`Total Cmds: ${config.totalCmds}`));
-
+      console.log(chalk.cyan(`User: ${sock.user?.id} | Num: ${num}`));
+      console.log(chalk.cyan(`Prefix: ${config.prefix} | Total Cmds: ${config.totalCmds}`));
       try {
         const buf = await getBuffer(config.botPfp);
         if (buf) await sock.updateProfilePicture(sock.user.id, buf);
@@ -122,13 +154,11 @@ async function startBot() {
         ? lastDisconnect.error.output.statusCode
         : 0;
       const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
-
-      console.log(chalk.red(`Connection closed. Code: ${statusCode}. Reconnect: ${shouldReconnect}`));
-
+      console.log(chalk.red(`Connection closed ${num}. Code: ${statusCode}. Reconnect: ${shouldReconnect}`));
       if (shouldReconnect) {
-        setTimeout(() => startBot(), 3000);
+        setTimeout(() => startBot(num), 3000);
       } else {
-        console.log(chalk.red("Logged out. Delete session folder and re-pair."));
+        console.log(chalk.red(`Logged out ${num}. Delete session/${num}`));
       }
     }
   });
@@ -180,9 +210,11 @@ async function startBot() {
 
       // Antilink
       if (isGroup && isBotAdmin && db.antilink[chat] && isUrl(body) && !isAdmin && !isOwner(sender)) {
-        await msg.react("🚫");
-        await sock.sendMessage(chat, { text: fancy(`Antilink active\n@${sender.split("@")[0]} removed for sending link`), mentions: [sender] });
-        await sock.groupParticipantsUpdate(chat, [sender], "remove");
+        try{
+          await msg.react("🚫");
+          await sock.sendMessage(chat, { text: fancy(`Antilink active\n@${sender.split("@")[0]} removed for sending link`), mentions: [sender] });
+          await sock.groupParticipantsUpdate(chat, [sender], "remove");
+        }catch{}
         return;
       }
 
