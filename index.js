@@ -43,7 +43,7 @@ function listSessions(){
   return fs.existsSync(SESSIONS_DIR) ? fs.readdirSync(SESSIONS_DIR).filter(f=>fs.statSync(path.join(SESSIONS_DIR,f)).isDirectory()) : []
 }
 
-// ========== PAIRING - FIXED ==========
+// ========== PAIRING - FIXED FOR 6.7.8 - NO MORE 428 ==========
 async function handlePair(phone, res){
   try{
     phone = String(phone||'').replace(/\D/g,'')
@@ -53,6 +53,10 @@ async function handlePair(phone, res){
     if(!fs.existsSync(sessionPath)) fs.mkdirSync(sessionPath,{recursive:true})
     
     const { state, saveCreds } = await useMultiFileAuthState(sessionPath)
+
+    if(state.creds.registered){
+      return res.json({success:false, message:'Already paired - delete session/'+phone})
+    }
     
     const tempSock = makeWASocket({
       version: [2,3000,1023223821],
@@ -67,7 +71,7 @@ async function handlePair(phone, res){
     })
     
     tempSock.ev.on('creds.update', saveCreds)
-    await new Promise(r=>setTimeout(r,2000))
+    await new Promise(r=>setTimeout(r,4000))
     
     if(tempSock.authState.creds.registered){
       return res.json({success:false, message:'Already paired - delete session/'+phone})
@@ -84,7 +88,7 @@ async function handlePair(phone, res){
       }
     })
     
-    res.json({success:true, code})
+    res.json({success:true, code, number: phone})
   }catch(err){
     console.error('Pair error:', err)
     res.json({success:false, message: err.message || 'Failed to request code'})
@@ -991,9 +995,7 @@ ${fancy("FUN MENU")}
         default:
           break;
       }
-
-
-
+        
       // Final reaction 💀
       await msg.react("💀");
 
@@ -1020,3 +1022,5 @@ if (!global.__CRASHER_LISTENED) {
 
 process.on("uncaughtException", (err) => console.error("Uncaught:", err));
 process.on("unhandledRejection", (err) => console.error("Unhandled:", err));
+
+      
