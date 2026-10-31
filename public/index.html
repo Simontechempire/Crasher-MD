@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ＣＲＡＳＨＥＲ ＭＤ — Pairing</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700&family=Inter:wght@400;600&display=swap');
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      min-height: 100vh;
+      background: radial-gradient(ellipse at top, #0f0c29, #302b63, #24243e);
+      font-family: 'Inter', sans-serif;
+      color: #e0e0ff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .card {
+      background: rgba(20, 15, 45, 0.85);
+      border: 1px solid #6c5ce7;
+      border-radius: 20px;
+      padding: 40px 30px;
+      max-width: 420px;
+      width: 100%;
+      box-shadow: 0 0 40px rgba(108, 92, 231, 0.35);
+      text-align: center;
+    }
+    .logo {
+      width: 110px;
+      height: 110px;
+      border-radius: 50%;
+      border: 3px solid #a29bfe;
+      object-fit: cover;
+      margin-bottom: 18px;
+      box-shadow: 0 0 25px rgba(162, 155, 254, 0.5);
+    }
+    h1 {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 1.6rem;
+      letter-spacing: 2px;
+      background: linear-gradient(90deg, #a29bfe, #fd79a8);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin-bottom: 6px;
+    }
+    .subtitle {
+      font-size: 0.85rem;
+      color: #a0a0c0;
+      margin-bottom: 28px;
+    }
+    label {
+      display: block;
+      text-align: left;
+      font-size: 0.8rem;
+      color: #b2bec3;
+      margin-bottom: 8px;
+    }
+    input {
+      width: 100%;
+      padding: 14px 16px;
+      border-radius: 12px;
+      border: 1px solid #6c5ce7;
+      background: #1a1635;
+      color: #fff;
+      font-size: 1.05rem;
+      outline: none;
+      transition: 0.2s;
+    }
+    input:focus { border-color: #a29bfe; box-shadow: 0 0 12px rgba(162, 155, 254, 0.4); }
+    button {
+      width: 100%;
+      margin-top: 18px;
+      padding: 14px;
+      border: none;
+      border-radius: 12px;
+      background: linear-gradient(135deg, #6c5ce7, #a29bfe);
+      color: white;
+      font-weight: 600;
+      font-size: 1rem;
+      cursor: pointer;
+      transition: 0.2s;
+    }
+    button:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(108, 92, 231, 0.45); }
+    button:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+    .code-box {
+      margin-top: 26px;
+      padding: 20px;
+      background: #0d0a1f;
+      border-radius: 14px;
+      border: 1px dashed #a29bfe;
+      display: none;
+    }
+    .code {
+      font-family: 'Orbitron', monospace;
+      font-size: 2.1rem;
+      letter-spacing: 8px;
+      color: #00cec9;
+      margin: 10px 0;
+    }
+    .status {
+      margin-top: 16px;
+      font-size: 0.9rem;
+      min-height: 24px;
+    }
+    .hint {
+      font-size: 0.75rem;
+      color: #888;
+      margin-top: 14px;
+      line-height: 1.5;
+    }
+    .footer {
+      margin-top: 30px;
+      font-size: 0.7rem;
+      color: #666;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <img src="https://files.catbox.moe/hhafg3.jpg" alt="Crasher MD" class="logo" onerror="this.src='https://i.imgur.com/8Km9tLL.png'" />
+    <h1>ＣＲＡＳＨＥＲ ＭＤ</h1>
+    <p class="subtitle">Pairing Session • Power • Speed • Control</p>
+
+    <label for="phone">WhatsApp Number (with country code)</label>
+    <input type="text" id="phone" placeholder="2348102350169" maxlength="15" />
+    
+    <button id="btn" onclick="getCode()">Generate 8-Digit Code</button>
+
+    <div class="code-box" id="codeBox">
+      <div style="font-size:0.8rem;color:#aaa;">Enter this code in WhatsApp</div>
+      <div class="code" id="pairCode">--------</div>
+      <div style="font-size:0.75rem;color:#888;">Settings → Linked Devices → Link with phone number</div>
+    </div>
+
+    <div class="status" id="status"></div>
+    <p class="hint">
+      Digits only • Include country code (e.g. 234 for Nigeria)<br>
+      No + or spaces
+    </p>
+    <div class="footer">🐺 Crasher MD 2026 • Baileys Engine</div>
+  </div>
+
+  <script>
+    async function getCode() {
+      const phone = document.getElementById("phone").value.replace(/\D/g, "");
+      const btn = document.getElementById("btn");
+      const status = document.getElementById("status");
+      const codeBox = document.getElementById("codeBox");
+      const pairCode = document.getElementById("pairCode");
+
+      if (phone.length < 10 || phone.length > 15) {
+        status.innerHTML = '<span style="color:#ff7675">Invalid number length</span>';
+        return;
+      }
+
+      btn.disabled = true;
+      btn.textContent = "Generating...";
+      status.innerHTML = '<span style="color:#74b9ff">Requesting pairing code from WhatsApp...</span>';
+      codeBox.style.display = "none";
+
+      try {
+        const res = await fetch("/pair", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ phone })
+        });
+        const data = await res.json();
+
+        if (data.success && data.code) {
+          pairCode.textContent = data.code;
+          codeBox.style.display = "block";
+          status.innerHTML = '<span style="color:#00b894">✓ Code generated successfully</span>';
+        } else {
+          status.innerHTML = `<span style="color:#ff7675">${data.message || "Failed to generate code"}</span>`;
+        }
+      } catch (err) {
+        status.innerHTML = '<span style="color:#ff7675">Server error. Is the bot running?</span>';
+      }
+
+      btn.disabled = false;
+      btn.textContent = "Generate 8-Digit Code";
+    }
+
+    document.getElementById("phone").addEventListener("keypress", e => {
+      if (e.key === "Enter") getCode();
+    });
+  </script>
+</body>
+  </html>
