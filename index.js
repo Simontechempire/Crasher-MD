@@ -992,14 +992,14 @@ ${fancy("FUN MENU")}
           break;
       }
 
+
+
       // Final reaction 💀
       await msg.react("💀");
 
-      }
-
     } catch (err) {
       console.error("Handler error:", err);
-      try { await msg.react("⚠️"); } catch {}
+      try { await m.react?.("⚠️"); } catch {}
     }
   });
 
