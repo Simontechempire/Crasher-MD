@@ -995,8 +995,6 @@ ${fancy("FUN MENU")}
       // Final reaction 💀
       await msg.react("💀");
 
-        default:
-          break;
       }
 
     } catch (err) {
@@ -1014,7 +1012,6 @@ if (!global.__CRASHER_LISTENED) {
   app.listen(PORT, () => {
     console.log(chalk.magenta(`\n🌐 Pairing UI → http://localhost:${PORT}`));
     console.log(chalk.magenta(`📡 Status     → http://localhost:${PORT}/status\n`));
-    console.log(chalk.cyan(`[BOOT] Starting ${listSessions().length} sessions...`));
     listSessions().forEach(n => {
       startBot(n).catch(e => console.error(`Failed ${n}:`, e));
     });
